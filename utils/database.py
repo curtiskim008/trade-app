@@ -1,5 +1,4 @@
 # utils/database.py
-
 import os
 import json
 from sqlalchemy import create_engine, text
@@ -8,44 +7,42 @@ from sqlalchemy.exc import SQLAlchemyError
 
 # --- DATABASE CONNECTION SETUP ---
 
-# Read from environment or Streamlit secrets
-DATABASE_URL = os.environ.get("DATABASE_URL")
+# Use SQLite (local database file)
+data_dir = Path("data")
+data_dir.mkdir(parents=True, exist_ok=True)
+local_db = data_dir / "trades.db"
+DATABASE_URL = f"sqlite:///{local_db}"
 
-# ✅ Your Supabase connection (fallback if not set in env)
-if not DATABASE_URL:
-    DATABASE_URL = "postgresql://postgres:abBc14fk750@db.fkucmpsydgobxzdvzbgg.supabase.co:5432/postgres"
-
-# Create SQLAlchemy engine (Postgres optimized)
-engine = create_engine(DATABASE_URL, echo=False, future=True, pool_pre_ping=True)
-
+# Create SQLAlchemy engine
+engine = create_engine(DATABASE_URL, echo=False, future=True)
 
 # --- DATABASE INITIALIZATION ---
 def init_db():
     """Create trades table if it doesn't exist."""
     create_sql = """
     CREATE TABLE IF NOT EXISTS trades (
-        id SERIAL PRIMARY KEY,
-        date DATE,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT,
         pair TEXT,
         session TEXT,
         entry_time TEXT,
         exit_time TEXT,
         trade_type TEXT,
-        planned_rr FLOAT,
-        realized_rr FLOAT,
-        profit_percent FLOAT,
+        planned_rr REAL,
+        realized_rr REAL,
+        profit_percent REAL,
         screenshots TEXT,
         notes TEXT,
         rights_wrongs TEXT,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
     """
     try:
         with engine.begin() as conn:
             conn.execute(text(create_sql))
-        print("✅ Database initialized successfully.")
+        print("✅ Local SQLite database initialized successfully.")
     except SQLAlchemyError as e:
-        print("❌ Error initializing database:", e)
+        print("❌ Error initializing local database:", e)
 
 
 # --- ADD NEW TRADE ---
@@ -60,8 +57,7 @@ def add_trade(trade_data: dict):
         VALUES (
             :date, :pair, :session, :entry_time, :exit_time, :trade_type,
             :planned_rr, :realized_rr, :profit_percent, :screenshots, :notes, :rights_wrongs
-        )
-        RETURNING id;
+        );
     """)
     params = {
         "date": trade_data.get("date"),
@@ -79,13 +75,12 @@ def add_trade(trade_data: dict):
     }
     try:
         with engine.begin() as conn:
-            result = conn.execute(insert_sql, params)
-            new_id = result.scalar_one()
-            print(f"✅ Trade added successfully (ID: {new_id})")
-            return new_id
+            conn.execute(insert_sql, params)
+            print("✅ Trade added successfully (SQLite).")
+            return True
     except SQLAlchemyError as e:
         print("❌ Error adding trade:", e)
-        return None
+        return False
 
 
 # --- FETCH ALL TRADES ---
@@ -129,7 +124,7 @@ def update_trade(trade_id: int, updated_data: dict):
     try:
         with engine.begin() as conn:
             result = conn.execute(sql, params)
-            print(f"✅ Trade {trade_id} updated successfully.")
+            print(f"✅ Trade {trade_id} updated successfully (SQLite).")
             return result.rowcount
     except SQLAlchemyError as e:
         print("❌ Error updating trade:", e)
@@ -142,7 +137,7 @@ def delete_trade(trade_id: int):
     try:
         with engine.begin() as conn:
             result = conn.execute(text("DELETE FROM trades WHERE id = :id;"), {"id": trade_id})
-            print(f"🗑️ Trade {trade_id} deleted successfully.")
+            print(f"🗑️ Trade {trade_id} deleted successfully (SQLite).")
             return result.rowcount
     except SQLAlchemyError as e:
         print("❌ Error deleting trade:", e)
