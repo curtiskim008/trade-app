@@ -1,8 +1,7 @@
 import streamlit as st
 import pandas as pd
-from utils import database as db
-import sqlite3
 import json
+from utils import database as db
 from datetime import datetime
 
 # --- PAGE CONFIG ---
@@ -12,15 +11,13 @@ st.title("📒 Your Trade Journal")
 # --- Initialize DB ---
 db.init_db()
 
-# --- Load Data ---
-conn = sqlite3.connect("data/trades.db")
-df = pd.read_sql_query("SELECT * FROM trades ORDER BY date DESC", conn)
-conn.close()
-
-if df.empty:
+# --- Load Data from helper ---
+trades = db.fetch_all_trades()
+if not trades:
     st.info("No trades found yet. Add your first one from the ➕ *Add Trade* page.")
     st.stop()
 
+df = pd.DataFrame(trades)
 df["date"] = pd.to_datetime(df["date"], errors="coerce")
 df["day"] = df["date"].dt.day_name()
 
@@ -51,13 +48,16 @@ st.markdown("""
 with st.container():
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        selected_pair = st.selectbox("Pair", ["All"] + sorted(df["pair"].unique().tolist()))
+        selected_pair = st.selectbox("Pair", ["All"] + sorted(df["pair"].dropna().unique().tolist()))
     with col2:
-        selected_session = st.selectbox("Session", ["All"] + sorted(df["session"].unique().tolist()))
+        selected_session = st.selectbox("Session", ["All"] + sorted(df["session"].dropna().unique().tolist()))
     with col3:
-        start_date, end_date = st.date_input("Date Range", value=(df["date"].min(), df["date"].max()))
+        start_date, end_date = st.date_input(
+            "Date Range",
+            value=(df["date"].min(), df["date"].max())
+        )
     with col4:
-        trade_types = ["All", "LIVE", "BACKTEST", "DEMO"]
+        trade_types = ["All", "Live", "Backtest", "Demo"]
         selected_trade_type = st.selectbox("Trade Type", trade_types)
 
 # --- FILTER LOGIC ---
@@ -67,15 +67,17 @@ if selected_pair != "All":
 if selected_session != "All":
     filtered_df = filtered_df[filtered_df["session"] == selected_session]
 if selected_trade_type != "All":
-    filtered_df = filtered_df[filtered_df["trade_type"].str.upper() == selected_trade_type]
-filtered_df = filtered_df[(filtered_df["date"] >= pd.to_datetime(start_date)) & 
-                          (filtered_df["date"] <= pd.to_datetime(end_date))]
+    filtered_df = filtered_df[filtered_df["trade_type"].str.lower() == selected_trade_type.lower()]
+filtered_df = filtered_df[
+    (filtered_df["date"] >= pd.to_datetime(start_date)) &
+    (filtered_df["date"] <= pd.to_datetime(end_date))
+]
 
 st.markdown("---")
 
 # --- DISPLAY TRADES ---
 for _, row in filtered_df.iterrows():
-    profit = float(row["profit_percent"])
+    profit = float(row.get("profit_percent", 0))
     trade_id = row["id"]
 
     if profit > 0:
@@ -85,7 +87,10 @@ for _, row in filtered_df.iterrows():
     else:
         card_class = "profit-neutral"
 
-    with st.expander(f"📈 {row['pair']} | {row['session']} | {row['date'].strftime('%Y-%m-%d')} ({row['day']}) | {profit}%", expanded=False):
+    with st.expander(
+        f"📈 {row['pair']} | {row['session']} | {row['date'].strftime('%Y-%m-%d')} ({row['day']}) | {profit}%",
+        expanded=False,
+    ):
         st.markdown(f"""
             <div class="trade-card {card_class}">
                 <div class="trade-header">{row['pair']} — {row['session']} ({row['day']})</div>
@@ -100,53 +105,46 @@ for _, row in filtered_df.iterrows():
         # --- SCREENSHOTS SECTION ---
         st.markdown("<div class='section screenshots-section'>", unsafe_allow_html=True)
         st.markdown("<div class='section-title'>🖼️ Screenshots</div>", unsafe_allow_html=True)
-        try:
-            screenshots = json.loads(row["screenshots"]) if row["screenshots"] else []
-            if screenshots:
-                left, right = st.columns(2)
-                labels = ["Daily TF", "H4", "H1", "M15", "M5"]
-                for i, path in enumerate(screenshots[:5]):
-                    col = left if i % 2 == 0 else right
-                    with col:
-                        st.caption(labels[i] if i < len(labels) else f"Screenshot {i+1}")
-                        st.image(path, use_container_width=True)
-            else:
-                st.caption("_No screenshots available._")
-        except Exception:
-            st.caption("_No valid screenshots found._")
+        screenshots = row.get("screenshots", [])
+        if isinstance(screenshots, str):
+            try:
+                screenshots = json.loads(screenshots)
+            except Exception:
+                screenshots = []
+        if screenshots:
+            cols = st.columns(3)
+            for i, path in enumerate(screenshots):
+                with cols[i % 3]:
+                    st.image(path, use_container_width=True)
+        else:
+            st.caption("_No screenshots available._")
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # --- NOTES SECTION ---
+        # --- NOTES ---
         st.markdown("<div class='section notes-section'>", unsafe_allow_html=True)
         st.markdown("<div class='section-title'>🧠 Notes</div>", unsafe_allow_html=True)
-        st.markdown(f"<div style='padding-left: 0.5rem;'>{row['notes'] if row['notes'] else '_No notes provided._'}</div>", unsafe_allow_html=True)
+        st.markdown(f"{row['notes'] or '_No notes provided._'}", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # --- RIGHTS/WRONGS SECTION ---
+        # --- RIGHTS/WRONGS ---
         st.markdown("<div class='section rights-section'>", unsafe_allow_html=True)
         st.markdown("<div class='section-title'>⚖️ Rights & Wrongs</div>", unsafe_allow_html=True)
-        st.markdown(f"<div style='padding-left: 0.5rem;'>{row['rights_wrongs'] if row['rights_wrongs'] else '_No reflection provided._'}</div>", unsafe_allow_html=True)
+        st.markdown(f"{row['rights_wrongs'] or '_No reflection provided._'}", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
         # --- ACTION BUTTONS ---
-        col1, col2 = st.columns([1, 1])
+        col1, col2 = st.columns(2)
         with col1:
             if st.button(f"✏️ Edit Trade {trade_id}", key=f"edit_{trade_id}"):
                 st.session_state["edit_trade_id"] = trade_id
         with col2:
             if st.button(f"🗑️ Delete Trade {trade_id}", key=f"delete_{trade_id}"):
-                try:
-                    conn = sqlite3.connect("data/trades.db")
-                    conn.execute("DELETE FROM trades WHERE id = ?", (trade_id,))
-                    conn.commit()
-                    conn.close()
-                    st.success(f"✅ Trade {trade_id} deleted successfully.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Error deleting trade: {e}")
+                db.delete_trade(trade_id)
+                st.success(f"✅ Trade {trade_id} deleted successfully.")
+                st.rerun()
 
-        # --- EDIT FORM BELOW TRADE ---
-        if "edit_trade_id" in st.session_state and st.session_state["edit_trade_id"] == trade_id:
+        # --- EDIT FORM ---
+        if st.session_state.get("edit_trade_id") == trade_id:
             st.markdown("<div class='edit-box'>", unsafe_allow_html=True)
             st.subheader("✏️ Edit Trade")
 
@@ -164,18 +162,18 @@ for _, row in filtered_df.iterrows():
             save_col, cancel_col = st.columns(2)
             with save_col:
                 if st.button("💾 Save Changes", key=f"save_{trade_id}"):
-                    conn = sqlite3.connect("data/trades.db")
-                    conn.execute("""
-                        UPDATE trades
-                        SET pair=?, session=?, date=?, entry_time=?, exit_time=?,
-                            planned_rr=?, realized_rr=?, profit_percent=?, notes=?, rights_wrongs=?
-                        WHERE id=?
-                    """, (
-                        pair, session, date.strftime("%Y-%m-%d"), entry_time, exit_time,
-                        planned_rr, realized_rr, profit_percent, notes, rights_wrongs, trade_id
-                    ))
-                    conn.commit()
-                    conn.close()
+                    db.update_trade(trade_id, {
+                        "pair": pair,
+                        "session": session,
+                        "date": date.strftime("%Y-%m-%d"),
+                        "entry_time": entry_time,
+                        "exit_time": exit_time,
+                        "planned_rr": planned_rr,
+                        "realized_rr": realized_rr,
+                        "profit_percent": profit_percent,
+                        "notes": notes,
+                        "rights_wrongs": rights_wrongs,
+                    })
                     del st.session_state["edit_trade_id"]
                     st.success("✅ Trade updated successfully!")
                     st.rerun()
