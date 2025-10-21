@@ -1,7 +1,1 @@
-streamlit
-pandas
-plotly
-numpy
-Pillow
-sqlalchemy
-psycopg2-binary
+streamlit\npandas\npathlib\npython-dateutil
