@@ -6,7 +6,7 @@ from sqlalchemy.engine import URL
 from pathlib import Path
 
 # Read DATABASE_URL from environment
-DATABASE_URL = os.environ.get("DATABASE_URL")
+DATABASE_URL = os.environ.get("postgresql://postgres:autam28$speed@db.fkucmpsydgobxzdvzbgg.supabase.co:5432/postgres")
 if not DATABASE_URL:
     # In local dev you can set this; for safety, we allow a local sqlite fallback only if env missing.
     # But for cloud deployment you must set DATABASE_URL.
