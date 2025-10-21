@@ -32,12 +32,10 @@ st.markdown("""
             box-shadow: 0px 4px 10px rgba(0,0,0,0.08);
         }
 
-        /* Text and labels */
         label, .stTextInput, .stSelectbox, .stNumberInput, .stTextArea {
             font-family: 'Inter', sans-serif;
         }
 
-        /* Buttons */
         .stButton>button {
             background-color: #4CAF50 !important;
             color: white !important;
@@ -52,7 +50,6 @@ st.markdown("""
             transform: translateY(-2px);
         }
 
-        /* Notes and Rights Sections */
         .notes-section {
             background: linear-gradient(135deg, #fff8e1, #fff3c4);
             border-left: 5px solid #ffcc00;
@@ -139,7 +136,7 @@ with st.form("add_trade_form"):
             "profit_percent": profit_percent,
             "notes": notes.strip(),
             "rights_wrongs": rights_wrongs.strip(),
-            "screenshots": json.dumps(screenshot_paths)
+            "screenshots": screenshot_paths  # ✅ FIXED — No JSON encoding here
         }
 
         if pair and session:
