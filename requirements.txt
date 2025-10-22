@@ -1,6 +1,19 @@
+# Core
 streamlit
 pandas
-sqlalchemy
-psycopg2-binary
-python-dateutil
+numpy
+
+# Optional, for file handling and paths (mostly stdlib, but safe to include)
+pathlib
+
+# Database
+sqlite3   # Note: part of Python stdlib, included by default
+
+# Utilities
+jsonlib   # JSON handling (Python stdlib already has json)
+python-dateutil  # For datetime parsing
+
+# For images
 Pillow
+
+# For OS interactions (mostly stdlib)
