@@ -2,6 +2,7 @@ import sqlite3
 import json
 import base64
 from pathlib import Path
+import os
 
 # --- Paths ---
 DATA_DIR = Path("data")
@@ -98,5 +99,40 @@ def update_trade(trade_id: int, trade_data: dict):
         json.dumps(trade_data.get("screenshots", {})),
         trade_id
     ))
+    conn.commit()
+    conn.close()
+def delete_trade(trade_id: int):
+    """
+    Deletes a trade and removes associated screenshots from disk.
+    Works with both dict-based and list-based formats.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Fetch screenshots before deleting
+    cursor.execute("SELECT screenshots FROM trades WHERE id = ?", (trade_id,))
+    row = cursor.fetchone()
+
+    if row and row[0]:
+        try:
+            screenshots = json.loads(row[0])
+
+            # If dict, delete each image file
+            if isinstance(screenshots, dict):
+                for path in screenshots.values():
+                    if path and os.path.exists(path):
+                        os.remove(path)
+
+            # If legacy list format, handle too
+            elif isinstance(screenshots, list):
+                for path in screenshots:
+                    if path and os.path.exists(path):
+                        os.remove(path)
+
+        except Exception as e:
+            print(f"⚠️ Error deleting screenshots for trade {trade_id}: {e}")
+
+    # Delete record
+    cursor.execute("DELETE FROM trades WHERE id = ?", (trade_id,))
     conn.commit()
     conn.close()
