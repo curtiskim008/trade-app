@@ -1,19 +1,4 @@
-# Core
-streamlit
-pandas
-numpy
-
-# Optional, for file handling and paths (mostly stdlib, but safe to include)
-pathlib
-
-# Database
-sqlite3   # Note: part of Python stdlib, included by default
-
-# Utilities
-jsonlib   # JSON handling (Python stdlib already has json)
-python-dateutil  # For datetime parsing
-
-# For images
-Pillow
-
-# For OS interactions (mostly stdlib)
+streamlit==1.50.0
+pandas==2.3.3
+numpy==2.3.4
+Pillow==10.3.0
