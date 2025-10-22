@@ -1,0 +1,14 @@
+# --- Data ---
+data/screenshots/
+data/trades.db
+
+# --- Python ---
+__pycache__/
+*.pyc
+venv/
+
+# --- Streamlit cache ---
+.streamlit/
+
+# --- VS Code ---
+.vscode/
