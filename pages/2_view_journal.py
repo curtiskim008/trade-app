@@ -83,24 +83,15 @@ if filtered.empty:
 
 # --- HELPERS ---
 def show_image(path):
-    """Display image safely, supporting both local and base64 formats."""
     try:
-        if not path:
-            st.info("No screenshot uploaded.")
-            return
-
-        # Handle base64 images (used by Streamlit Cloud sometimes)
-        if isinstance(path, str) and path.startswith("data:image"):
-            st.image(path, use_container_width=True)
-        elif os.path.exists(path):
+        if path and os.path.exists(path):
             st.image(path, use_container_width=True)
         else:
-            st.info("No screenshot available.")
-    except Exception as e:
-        st.error(f"Error displaying image: {e}")
+            st.info("No screenshot uploaded.")
+    except Exception:
+        st.error("Error displaying image.")
 
 def handle_file_upload(label, existing_path=None):
-    """Handle upload or keep existing image."""
     uploaded_file = st.file_uploader(label, type=["png", "jpg", "jpeg"], key=label)
     if uploaded_file:
         save_path = SCREENSHOT_DIR / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uploaded_file.name}"
@@ -111,15 +102,15 @@ def handle_file_upload(label, existing_path=None):
 
 # --- DISPLAY TRADES ---
 for _, trade in filtered.sort_values(by="date", ascending=False).iterrows():
-    # --- Parse screenshots safely ---
-    screenshots = trade.get("screenshots", {})
-    if isinstance(screenshots, str):  # if stored as JSON string
-        try:
-            screenshots = json.loads(screenshots)
-        except Exception:
-            screenshots = {}
-
-    if not isinstance(screenshots, dict):
+    # Safely parse screenshots
+    screenshots = {}
+    try:
+        screenshots_data = trade.get("screenshots", {})
+        if isinstance(screenshots_data, str):
+            screenshots = json.loads(screenshots_data)
+        elif isinstance(screenshots_data, dict):
+            screenshots = screenshots_data
+    except Exception:
         screenshots = {}
 
     # --- Expander Label ---
@@ -182,6 +173,7 @@ for _, trade in filtered.sort_values(by="date", ascending=False).iterrows():
                 for tf in ["daily", "h4", "h1", "m15", "m5", "outcome"]:
                     new_screenshots[tf] = handle_file_upload(f"Upload {tf.upper()} Screenshot", screenshots.get(tf))
 
+                # Keep other data same
                 updated.update({
                     "pair": trade.get("pair"),
                     "session": trade.get("session"),
