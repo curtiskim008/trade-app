@@ -82,50 +82,38 @@ if filtered.empty:
     st.stop()
 
 # --- HELPERS ---
-def show_image(path):
+def load_screenshots(screenshots_raw):
+    """Safely convert screenshots from DB to dict."""
+    if not screenshots_raw:
+        return {}
+    if isinstance(screenshots_raw, dict):
+        return screenshots_raw
     try:
-        if path and os.path.exists(path):
-            st.image(path, use_container_width=True)
-        else:
-            st.info("No screenshot uploaded.")
+        data = json.loads(screenshots_raw)
+        return data if isinstance(data, dict) else {}
     except Exception:
-        st.error("Error displaying image.")
+        return {}
 
-def handle_file_upload_live(trade_id, tf_key, current_screenshots):
-    """
-    Handles file upload and updates session_state immediately for instant preview.
-    """
-    label = f"{tf_key.upper()}_{trade_id}"
-    uploaded_file = st.file_uploader(f"Upload {tf_key.upper()} Screenshot", type=["png", "jpg", "jpeg"], key=label)
-    
+def show_image(path):
+    """Show image if path exists."""
+    if path and os.path.exists(path):
+        st.image(path, use_container_width=True)
+    else:
+        st.info("No screenshot uploaded or file missing.")
+
+def handle_file_upload(label, existing_path=None):
+    uploaded_file = st.file_uploader(label, type=["png", "jpg", "jpeg"], key=label)
     if uploaded_file:
         save_path = SCREENSHOT_DIR / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uploaded_file.name}"
         with open(save_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
-
-        # Update session state for instant preview
-        if "trade_screenshots" not in st.session_state:
-            st.session_state["trade_screenshots"] = {}
-        if trade_id not in st.session_state["trade_screenshots"]:
-            st.session_state["trade_screenshots"][trade_id] = current_screenshots.copy()
-        st.session_state["trade_screenshots"][trade_id][tf_key] = str(save_path)
-        
         return str(save_path)
-    
-    # Return currently stored path (session_state overrides DB)
-    return st.session_state.get("trade_screenshots", {}).get(trade_id, {}).get(tf_key, current_screenshots.get(tf_key))
+    return existing_path
 
 # --- DISPLAY TRADES ---
 for _, trade in filtered.sort_values(by="date", ascending=False).iterrows():
-    screenshots = {}
-    try:
-        screenshots = json.loads(trade.get("screenshots", "{}"))
-        if not isinstance(screenshots, dict):
-            screenshots = {}
-    except Exception:
-        screenshots = {}
+    screenshots = load_screenshots(trade.get("screenshots", {}))
 
-    # --- Get label for expander ---
     trade_date = trade["date"].strftime('%Y-%m-%d') if not pd.isna(trade["date"]) else "N/A"
     trade_day = trade["date"].strftime('%A') if not pd.isna(trade["date"]) else "Unknown Day"
     expander_label = f"📘 {trade['pair']} | {trade_day}, {trade_date}"
@@ -133,7 +121,7 @@ for _, trade in filtered.sort_values(by="date", ascending=False).iterrows():
     with st.expander(expander_label, expanded=False):
         st.markdown("<div class='trade-card'>", unsafe_allow_html=True)
 
-        # --- Meta Info ---
+        # --- Meta info ---
         st.markdown(
             f"<div class='meta'>💰 Profit: <b>{trade.get('profit_percent','N/A')}%</b> | "
             f"🎯 Planned R:R: <b>{trade.get('planned_rr','N/A')}</b> | "
@@ -142,36 +130,33 @@ for _, trade in filtered.sort_values(by="date", ascending=False).iterrows():
             f"📈 Type: <b>{trade.get('trade_type','N/A')}</b></div>", unsafe_allow_html=True
         )
 
-        # --- SCREENSHOTS SECTION ---
+        # --- Screenshots ---
         st.markdown("<div class='section-header'>🖼️ Screenshots</div>", unsafe_allow_html=True)
-        for tf in ["Daily", "H4", "H1", "M15", "M5", "Outcome"]:
-            tf_key = tf.lower()
-            # Use session_state if uploaded
-            img_path = st.session_state.get("trade_screenshots", {}).get(trade["id"], {}).get(tf_key, screenshots.get(tf_key))
-            with st.expander(f"📸 {tf} Chart", expanded=False):
+        for tf in ["daily", "h4", "h1", "m15", "m5", "outcome"]:
+            img_path = screenshots.get(tf)
+            with st.expander(f"📸 {tf.upper()} Chart", expanded=False):
                 show_image(img_path)
 
-        # --- NOTES SECTION ---
+        # --- Notes & Rights/ Wrongs ---
         st.markdown("<div class='section-header'>🧠 Notes</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='note-box'>{trade.get('notes','_No notes provided._')}</div>", unsafe_allow_html=True)
 
-        # --- RIGHTS & WRONGS SECTION ---
         st.markdown("<div class='section-header'>⚖️ Rights & Wrongs</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='rw-box'>{trade.get('rights_wrongs','_No reflections provided._')}</div>", unsafe_allow_html=True)
 
-        # --- ACTION BUTTONS ---
+        # --- Action Buttons ---
         col1, col2 = st.columns(2)
         with col1:
             if st.button(f"✏️ Edit Trade {trade['id']}", key=f"edit_{trade['id']}"):
                 st.session_state["edit_trade_id"] = trade["id"]
                 st.rerun()
         with col2:
-            if st.button(f"🗑️ Delete Trade {trade['id']}", key=f"delete_{trade['id']}", type="secondary"):
+            if st.button(f"🗑️ Delete Trade {trade['id']}", key=f"delete_{trade['id']}"):
                 db.delete_trade(trade["id"])
                 st.success(f"Trade {trade['id']} deleted successfully.")
                 st.rerun()
 
-        # --- INLINE EDIT FORM ---
+        # --- Inline Edit Form ---
         if st.session_state.get("edit_trade_id") == trade["id"]:
             st.divider()
             st.subheader("📝 Edit Trade Details")
@@ -184,7 +169,7 @@ for _, trade in filtered.sort_values(by="date", ascending=False).iterrows():
                 st.markdown("### Update Screenshots")
                 new_screenshots = {}
                 for tf in ["daily", "h4", "h1", "m15", "m5", "outcome"]:
-                    new_screenshots[tf] = handle_file_upload_live(trade["id"], tf, screenshots)
+                    new_screenshots[tf] = handle_file_upload(f"Upload {tf.upper()} Screenshot", screenshots.get(tf))
 
                 # Keep other data same
                 updated.update({
