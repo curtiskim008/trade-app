@@ -1,10 +1,9 @@
 import streamlit as st
 import pandas as pd
 import json
-import os
 from datetime import datetime
-from pathlib import Path
 from utils import database as db
+import base64
 
 # --- PAGE CONFIG ---
 st.set_page_config(layout="wide", page_title="📒 Trade Journal")
@@ -13,11 +12,6 @@ st.title("📒 Your Trade Journal")
 # --- INIT DATABASE ---
 db.init_db()
 
-# --- Directories ---
-DATA_DIR = Path("data")
-SCREENSHOT_DIR = DATA_DIR / "screenshots"
-SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
-
 # --- LOAD TRADES ---
 trades = db.fetch_all_trades()
 if not trades:
@@ -25,26 +19,7 @@ if not trades:
     st.stop()
 
 df = pd.DataFrame(trades)
-
-# Ensure proper date format
-if "date" in df.columns:
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-else:
-    df["date"] = pd.NaT
-
-# --- STYLING ---
-st.markdown("""
-<style>
-    .block-container {padding: 2rem 3rem !important; max-width: 1600px !important;}
-    .trade-card {background-color: #ffffff; border-radius: 15px; padding: 1.5rem; margin-bottom: 2rem;
-                 box-shadow: 0 4px 12px rgba(0,0,0,0.08);}
-    .meta {color: #444; font-size: 0.95rem; margin-bottom: 1rem;}
-    .section-header {color: #333; font-size: 1.1rem; font-weight: 600; margin-top: 1rem;}
-    .note-box {background-color: #f9f9f9; padding: 1rem; border-radius: 10px;}
-    .rw-box {background-color: #f2f2f2; padding: 1rem; border-radius: 10px;}
-    .stButton>button {border-radius: 8px; padding: 0.4rem 0.8rem;}
-</style>
-""", unsafe_allow_html=True)
+df["date"] = pd.to_datetime(df.get("date"), errors="coerce")
 
 # --- FILTERS ---
 with st.container():
@@ -60,10 +35,9 @@ with st.container():
         max_date = df["date"].max().date() if not df["date"].isna().all() else datetime.today().date()
         start_date, end_date = st.date_input("Date Range", (min_date, max_date))
     with c4:
-        trade_types = ["All"] + sorted(df["trade_type"].dropna().unique().tolist()) if "trade_type" in df.columns else ["All"]
-        selected_type = st.selectbox("Trade Type", trade_types)
+        types = ["All"] + sorted(df["trade_type"].dropna().unique().tolist())
+        selected_type = st.selectbox("Trade Type", types)
 
-# --- APPLY FILTERS ---
 filtered = df.copy()
 if selected_pair != "All":
     filtered = filtered[filtered["pair"] == selected_pair]
@@ -71,106 +45,74 @@ if selected_session != "All":
     filtered = filtered[filtered["session"] == selected_session]
 if selected_type != "All":
     filtered = filtered[filtered["trade_type"] == selected_type]
-
-filtered = filtered[
-    (df["date"].dt.date >= start_date) &
-    (df["date"].dt.date <= end_date)
-]
+filtered = filtered[(df["date"].dt.date >= start_date) & (df["date"].dt.date <= end_date)]
 
 if filtered.empty:
     st.warning("No trades match your filters.")
     st.stop()
 
-# --- HELPERS ---
-def show_image(path):
-    try:
-        if path and os.path.exists(path):
-            st.image(path, use_container_width=True)
-        else:
-            st.info("No screenshot uploaded.")
-    except Exception:
-        st.error("Error displaying image.")
 
-def handle_file_upload(label, existing_path=None):
-    uploaded_file = st.file_uploader(label, type=["png", "jpg", "jpeg"], key=label)
-    if uploaded_file:
-        save_path = SCREENSHOT_DIR / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uploaded_file.name}"
-        with open(save_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-        return str(save_path)
-    return existing_path
+# --- HELPERS ---
+def show_base64_image(base64_str):
+    if base64_str:
+        st.image(base64.b64decode(base64_str), use_container_width=True)
+    else:
+        st.info("No screenshot uploaded.")
+
 
 # --- DISPLAY TRADES ---
 for _, trade in filtered.sort_values(by="date", ascending=False).iterrows():
-    screenshots = {}
-    try:
-        screenshots = json.loads(trade.get("screenshots", "{}"))
-        if not isinstance(screenshots, dict):
-            screenshots = {}
-    except Exception:
-        screenshots = {}
-
-    # --- Get label for expander ---
+    screenshots = json.loads(trade.get("screenshots") or "{}")
     trade_date = trade["date"].strftime('%Y-%m-%d') if not pd.isna(trade["date"]) else "N/A"
     trade_day = trade["date"].strftime('%A') if not pd.isna(trade["date"]) else "Unknown Day"
-    expander_label = f"📘 {trade['pair']} | {trade_day}, {trade_date}"
 
+    expander_label = f"📘 {trade['pair']} | {trade_day}, {trade_date}"
     with st.expander(expander_label, expanded=False):
-        st.markdown("<div class='trade-card'>", unsafe_allow_html=True)
 
         # --- Meta Info ---
-        st.markdown(
-            f"<div class='meta'>💰 Profit: <b>{trade.get('profit_percent','N/A')}%</b> | "
-            f"🎯 Planned R:R: <b>{trade.get('planned_rr','N/A')}</b> | "
-            f"✅ Realized R:R: <b>{trade.get('realized_rr','N/A')}</b> | "
-            f"⚖️ Risk: <b>{trade.get('risk_per_trade','N/A')}%</b> | "
-            f"📈 Type: <b>{trade.get('trade_type','N/A')}</b></div>", unsafe_allow_html=True
-        )
+        st.markdown(f"💰 Profit: {trade.get('profit_percent','N/A')}% | 🎯 Planned R:R: {trade.get('planned_rr','N/A')} | ✅ Realized R:R: {trade.get('realized_rr','N/A')} | ⚖️ Risk: {trade.get('risk_per_trade','N/A')}% | 📈 Type: {trade.get('trade_type','N/A')}")
 
-        # --- SCREENSHOTS SECTION ---
-        st.markdown("<div class='section-header'>🖼️ Screenshots</div>", unsafe_allow_html=True)
-        for tf in ["Daily", "H4", "H1", "M15", "M5", "Outcome"]:
-            tf_key = tf.lower()
-            img_path = screenshots.get(tf_key)
-            with st.expander(f"📸 {tf} Chart", expanded=False):
-                show_image(img_path)
+        # --- Screenshots ---
+        st.markdown("### 🖼️ Screenshots")
+        for tf in ["daily","h4","h1","m15","m5","outcome"]:
+            with st.expander(f"📸 {tf.upper()} Chart", expanded=False):
+                show_base64_image(screenshots.get(tf))
 
-        # --- NOTES SECTION ---
-        st.markdown("<div class='section-header'>🧠 Notes</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='note-box'>{trade.get('notes','_No notes provided._')}</div>", unsafe_allow_html=True)
+        # --- Notes & Rights/Wrongs ---
+        st.markdown("### 🧠 Notes")
+        st.write(trade.get("notes") or "_No notes provided._")
+        st.markdown("### ⚖️ Rights & Wrongs")
+        st.write(trade.get("rights_wrongs") or "_No reflections provided._")
 
-        # --- RIGHTS & WRONGS SECTION ---
-        st.markdown("<div class='section-header'>⚖️ Rights & Wrongs</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='rw-box'>{trade.get('rights_wrongs','_No reflections provided._')}</div>", unsafe_allow_html=True)
-
-        # --- ACTION BUTTONS ---
+        # --- Actions ---
         col1, col2 = st.columns(2)
         with col1:
             if st.button(f"✏️ Edit Trade {trade['id']}", key=f"edit_{trade['id']}"):
                 st.session_state["edit_trade_id"] = trade["id"]
                 st.rerun()
         with col2:
-            if st.button(f"🗑️ Delete Trade {trade['id']}", key=f"delete_{trade['id']}", type="secondary"):
+            if st.button(f"🗑️ Delete Trade {trade['id']}", key=f"delete_{trade['id']}"):
                 db.delete_trade(trade["id"])
                 st.success(f"Trade {trade['id']} deleted successfully.")
                 st.rerun()
 
-        # --- INLINE EDIT FORM ---
+        # --- Inline Edit Form ---
         if st.session_state.get("edit_trade_id") == trade["id"]:
-            st.divider()
             st.subheader("📝 Edit Trade Details")
-
             with st.form(f"edit_form_{trade['id']}"):
                 updated = {}
-                updated["notes"] = st.text_area("Notes", trade.get("notes", ""))
-                updated["rights_wrongs"] = st.text_area("Rights & Wrongs", trade.get("rights_wrongs", ""))
+                updated["notes"] = st.text_area("Notes", trade.get("notes",""))
+                updated["rights_wrongs"] = st.text_area("Rights & Wrongs", trade.get("rights_wrongs",""))
 
                 st.markdown("### Update Screenshots")
                 new_screenshots = {}
-                for tf in ["daily", "h4", "h1", "m15", "m5", "outcome"]:
-                    new_screenshots[tf] = handle_file_upload(f"Upload {tf.upper()} Screenshot", screenshots.get(tf))
+                for tf in ["daily","h4","h1","m15","m5","outcome"]:
+                    uploaded = st.file_uploader(f"{tf.upper()} Screenshot", type=["png","jpg","jpeg"], key=f"upload_{trade['id']}_{tf}")
+                    if uploaded:
+                        new_screenshots[tf] = base64.b64encode(uploaded.read()).decode("utf-8")
+                    else:
+                        new_screenshots[tf] = screenshots.get(tf)
 
-                # Keep other data same
                 updated.update({
                     "pair": trade.get("pair"),
                     "session": trade.get("session"),
@@ -191,5 +133,3 @@ for _, trade in filtered.sort_values(by="date", ascending=False).iterrows():
                     st.success("Trade updated successfully.")
                     del st.session_state["edit_trade_id"]
                     st.rerun()
-
-        st.markdown("</div>", unsafe_allow_html=True)
