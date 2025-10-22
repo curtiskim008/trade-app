@@ -1,8 +1,9 @@
 import streamlit as st
 import pandas as pd
 import json
-import base64
+import os
 from datetime import datetime
+from pathlib import Path
 from utils import database as db
 
 # --- PAGE CONFIG ---
@@ -11,6 +12,11 @@ st.title("📒 Your Trade Journal")
 
 # --- INIT DATABASE ---
 db.init_db()
+
+# --- Directories ---
+DATA_DIR = Path("data")
+SCREENSHOT_DIR = DATA_DIR / "screenshots"
+SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
 
 # --- LOAD TRADES ---
 trades = db.fetch_all_trades()
@@ -76,27 +82,47 @@ if filtered.empty:
     st.stop()
 
 # --- HELPERS ---
-def show_base64_image(base64_str):
-    if not base64_str:
-        st.info("No screenshot uploaded.")
-        return
+def show_image(path):
+    """Display image safely, supporting both local and base64 formats."""
     try:
-        image_bytes = base64.b64decode(base64_str)
-        st.image(image_bytes, use_container_width=True)
-    except Exception:
-        st.error("Error displaying image.")
+        if not path:
+            st.info("No screenshot uploaded.")
+            return
+
+        # Handle base64 images (used by Streamlit Cloud sometimes)
+        if isinstance(path, str) and path.startswith("data:image"):
+            st.image(path, use_container_width=True)
+        elif os.path.exists(path):
+            st.image(path, use_container_width=True)
+        else:
+            st.info("No screenshot available.")
+    except Exception as e:
+        st.error(f"Error displaying image: {e}")
+
+def handle_file_upload(label, existing_path=None):
+    """Handle upload or keep existing image."""
+    uploaded_file = st.file_uploader(label, type=["png", "jpg", "jpeg"], key=label)
+    if uploaded_file:
+        save_path = SCREENSHOT_DIR / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uploaded_file.name}"
+        with open(save_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        return str(save_path)
+    return existing_path
 
 # --- DISPLAY TRADES ---
 for _, trade in filtered.sort_values(by="date", ascending=False).iterrows():
-    screenshots = {}
-    try:
-        screenshots = json.loads(trade.get("screenshots", "{}"))
-        if not isinstance(screenshots, dict):
+    # --- Parse screenshots safely ---
+    screenshots = trade.get("screenshots", {})
+    if isinstance(screenshots, str):  # if stored as JSON string
+        try:
+            screenshots = json.loads(screenshots)
+        except Exception:
             screenshots = {}
-    except Exception:
+
+    if not isinstance(screenshots, dict):
         screenshots = {}
 
-    # --- Expander label ---
+    # --- Expander Label ---
     trade_date = trade["date"].strftime('%Y-%m-%d') if not pd.isna(trade["date"]) else "N/A"
     trade_day = trade["date"].strftime('%A') if not pd.isna(trade["date"]) else "Unknown Day"
     expander_label = f"📘 {trade['pair']} | {trade_day}, {trade_date}"
@@ -117,8 +143,9 @@ for _, trade in filtered.sort_values(by="date", ascending=False).iterrows():
         st.markdown("<div class='section-header'>🖼️ Screenshots</div>", unsafe_allow_html=True)
         for tf in ["Daily", "H4", "H1", "M15", "M5", "Outcome"]:
             tf_key = tf.lower()
+            img_path = screenshots.get(tf_key)
             with st.expander(f"📸 {tf} Chart", expanded=False):
-                show_base64_image(screenshots.get(tf_key))
+                show_image(img_path)
 
         # --- NOTES SECTION ---
         st.markdown("<div class='section-header'>🧠 Notes</div>", unsafe_allow_html=True)
@@ -135,7 +162,7 @@ for _, trade in filtered.sort_values(by="date", ascending=False).iterrows():
                 st.session_state["edit_trade_id"] = trade["id"]
                 st.rerun()
         with col2:
-            if st.button(f"🗑️ Delete Trade {trade['id']}", key=f"delete_{trade['id']}"):
+            if st.button(f"🗑️ Delete Trade {trade['id']}", key=f"delete_{trade['id']}", type="secondary"):
                 db.delete_trade(trade["id"])
                 st.success(f"Trade {trade['id']} deleted successfully.")
                 st.rerun()
@@ -153,13 +180,8 @@ for _, trade in filtered.sort_values(by="date", ascending=False).iterrows():
                 st.markdown("### Update Screenshots")
                 new_screenshots = {}
                 for tf in ["daily", "h4", "h1", "m15", "m5", "outcome"]:
-                    uploaded_file = st.file_uploader(f"Upload {tf.upper()} Screenshot", type=["png","jpg","jpeg"], key=f"{tf}_{trade['id']}")
-                    if uploaded_file:
-                        new_screenshots[tf] = base64.b64encode(uploaded_file.read()).decode("utf-8")
-                    else:
-                        new_screenshots[tf] = screenshots.get(tf)
+                    new_screenshots[tf] = handle_file_upload(f"Upload {tf.upper()} Screenshot", screenshots.get(tf))
 
-                # Keep other data same
                 updated.update({
                     "pair": trade.get("pair"),
                     "session": trade.get("session"),
