@@ -1,4 +1,8 @@
-streamlit==1.50.0
-pandas==2.3.3
-numpy==2.3.4
-Pillow==10.3.0
+streamlit
+pandas
+numpy
+Pillow
+rich
+markdown-it-py
+mdurl
+pygments
