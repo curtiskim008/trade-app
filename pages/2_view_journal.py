@@ -91,29 +91,41 @@ def show_image(path):
     except Exception:
         st.error("Error displaying image.")
 
-def handle_file_upload(label, existing_path=None):
-    uploaded_file = st.file_uploader(label, type=["png", "jpg", "jpeg"], key=label)
+def handle_file_upload_live(trade_id, tf_key, current_screenshots):
+    """
+    Handles file upload and updates session_state immediately for instant preview.
+    """
+    label = f"{tf_key.upper()}_{trade_id}"
+    uploaded_file = st.file_uploader(f"Upload {tf_key.upper()} Screenshot", type=["png", "jpg", "jpeg"], key=label)
+    
     if uploaded_file:
         save_path = SCREENSHOT_DIR / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uploaded_file.name}"
         with open(save_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
+
+        # Update session state for instant preview
+        if "trade_screenshots" not in st.session_state:
+            st.session_state["trade_screenshots"] = {}
+        if trade_id not in st.session_state["trade_screenshots"]:
+            st.session_state["trade_screenshots"][trade_id] = current_screenshots.copy()
+        st.session_state["trade_screenshots"][trade_id][tf_key] = str(save_path)
+        
         return str(save_path)
-    return existing_path
+    
+    # Return currently stored path (session_state overrides DB)
+    return st.session_state.get("trade_screenshots", {}).get(trade_id, {}).get(tf_key, current_screenshots.get(tf_key))
 
 # --- DISPLAY TRADES ---
 for _, trade in filtered.sort_values(by="date", ascending=False).iterrows():
-    # Safely parse screenshots
     screenshots = {}
     try:
-        screenshots_data = trade.get("screenshots", {})
-        if isinstance(screenshots_data, str):
-            screenshots = json.loads(screenshots_data)
-        elif isinstance(screenshots_data, dict):
-            screenshots = screenshots_data
+        screenshots = json.loads(trade.get("screenshots", "{}"))
+        if not isinstance(screenshots, dict):
+            screenshots = {}
     except Exception:
         screenshots = {}
 
-    # --- Expander Label ---
+    # --- Get label for expander ---
     trade_date = trade["date"].strftime('%Y-%m-%d') if not pd.isna(trade["date"]) else "N/A"
     trade_day = trade["date"].strftime('%A') if not pd.isna(trade["date"]) else "Unknown Day"
     expander_label = f"📘 {trade['pair']} | {trade_day}, {trade_date}"
@@ -134,7 +146,8 @@ for _, trade in filtered.sort_values(by="date", ascending=False).iterrows():
         st.markdown("<div class='section-header'>🖼️ Screenshots</div>", unsafe_allow_html=True)
         for tf in ["Daily", "H4", "H1", "M15", "M5", "Outcome"]:
             tf_key = tf.lower()
-            img_path = screenshots.get(tf_key)
+            # Use session_state if uploaded
+            img_path = st.session_state.get("trade_screenshots", {}).get(trade["id"], {}).get(tf_key, screenshots.get(tf_key))
             with st.expander(f"📸 {tf} Chart", expanded=False):
                 show_image(img_path)
 
@@ -171,7 +184,7 @@ for _, trade in filtered.sort_values(by="date", ascending=False).iterrows():
                 st.markdown("### Update Screenshots")
                 new_screenshots = {}
                 for tf in ["daily", "h4", "h1", "m15", "m5", "outcome"]:
-                    new_screenshots[tf] = handle_file_upload(f"Upload {tf.upper()} Screenshot", screenshots.get(tf))
+                    new_screenshots[tf] = handle_file_upload_live(trade["id"], tf, screenshots)
 
                 # Keep other data same
                 updated.update({
