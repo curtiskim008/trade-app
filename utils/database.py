@@ -1,28 +1,30 @@
 import sqlite3
 import json
-from datetime import datetime
-import os
+import base64
+from pathlib import Path
 
-DB_PATH = "data/trades.db"
+# --- Paths ---
+DATA_DIR = Path("data")
+DB_PATH = DATA_DIR / "trades.db"
+DATA_DIR.mkdir(exist_ok=True)
 
+# --- Initialize Database ---
 def init_db():
-    """Initialize the database and create table if it doesn’t exist."""
-    os.makedirs("data", exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("""
+    cursor = conn.cursor()
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS trades (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT,
             pair TEXT,
             session TEXT,
+            date TEXT,
             entry_time TEXT,
             exit_time TEXT,
             trade_type TEXT,
-            planned_rr TEXT,
-            realized_rr TEXT,
-            profit_percent TEXT,
-            risk_per_trade TEXT,
+            planned_rr REAL,
+            realized_rr REAL,
+            profit_percent REAL,
+            risk_per_trade REAL,
             notes TEXT,
             rights_wrongs TEXT,
             screenshots TEXT
@@ -31,59 +33,24 @@ def init_db():
     conn.commit()
     conn.close()
 
-def fetch_all_trades():
-    """Fetch all trades from database."""
+# --- Add a Trade ---
+def add_trade(trade_data: dict):
     conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT * FROM trades ORDER BY date DESC")
-    rows = c.fetchall()
-    conn.close()
+    cursor = conn.cursor()
 
-    columns = [
-        "id", "date", "pair", "session", "entry_time", "exit_time",
-        "trade_type", "planned_rr", "realized_rr", "profit_percent",
-        "risk_per_trade", "notes", "rights_wrongs", "screenshots"
-    ]
-
-    trades = []
-    for row in rows:
-        trade = dict(zip(columns, row))
-
-        # Handle screenshots JSON or None
-        try:
-            if trade["screenshots"]:
-                screenshots = json.loads(trade["screenshots"])
-                if not isinstance(screenshots, dict):
-                    screenshots = {}
-            else:
-                screenshots = {}
-        except Exception:
-            screenshots = {}
-
-        trade["screenshots"] = screenshots
-        trades.append(trade)
-
-    return trades
-
-def insert_trade(trade_data):
-    """Insert a new trade into the database."""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-
-    # Ensure screenshots are JSON-encoded safely
+    # Convert screenshots dict (with base64 strings) to JSON
     screenshots_json = json.dumps(trade_data.get("screenshots", {}))
 
-    c.execute("""
+    cursor.execute("""
         INSERT INTO trades (
-            date, pair, session, entry_time, exit_time, trade_type,
+            pair, session, date, entry_time, exit_time, trade_type,
             planned_rr, realized_rr, profit_percent, risk_per_trade,
             notes, rights_wrongs, screenshots
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        trade_data.get("date"),
         trade_data.get("pair"),
         trade_data.get("session"),
+        trade_data.get("date"),
         trade_data.get("entry_time"),
         trade_data.get("exit_time"),
         trade_data.get("trade_type"),
@@ -95,57 +62,56 @@ def insert_trade(trade_data):
         trade_data.get("rights_wrongs"),
         screenshots_json
     ))
-
     conn.commit()
     conn.close()
 
-def update_trade(trade_id, updated_data):
-    """Update a trade by ID."""
+# --- Fetch All Trades ---
+def fetch_all_trades():
     conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM trades ORDER BY date DESC")
+    columns = [desc[0] for desc in cursor.description]
+    rows = cursor.fetchall()
+    conn.close()
+    trades = [dict(zip(columns, row)) for row in rows]
+    return trades
 
-    screenshots_json = json.dumps(updated_data.get("screenshots", {}))
+# --- Update Trade ---
+def update_trade(trade_id: int, trade_data: dict):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
 
-    c.execute("""
-        UPDATE trades SET
-            date = ?,
-            pair = ?,
-            session = ?,
-            entry_time = ?,
-            exit_time = ?,
-            trade_type = ?,
-            planned_rr = ?,
-            realized_rr = ?,
-            profit_percent = ?,
-            risk_per_trade = ?,
-            notes = ?,
-            rights_wrongs = ?,
-            screenshots = ?
-        WHERE id = ?
+    screenshots_json = json.dumps(trade_data.get("screenshots", {}))
+
+    cursor.execute("""
+        UPDATE trades
+        SET pair=?, session=?, date=?, entry_time=?, exit_time=?, trade_type=?,
+            planned_rr=?, realized_rr=?, profit_percent=?, risk_per_trade=?,
+            notes=?, rights_wrongs=?, screenshots=?
+        WHERE id=?
     """, (
-        updated_data.get("date"),
-        updated_data.get("pair"),
-        updated_data.get("session"),
-        updated_data.get("entry_time"),
-        updated_data.get("exit_time"),
-        updated_data.get("trade_type"),
-        updated_data.get("planned_rr"),
-        updated_data.get("realized_rr"),
-        updated_data.get("profit_percent"),
-        updated_data.get("risk_per_trade"),
-        updated_data.get("notes"),
-        updated_data.get("rights_wrongs"),
+        trade_data.get("pair"),
+        trade_data.get("session"),
+        trade_data.get("date"),
+        trade_data.get("entry_time"),
+        trade_data.get("exit_time"),
+        trade_data.get("trade_type"),
+        trade_data.get("planned_rr"),
+        trade_data.get("realized_rr"),
+        trade_data.get("profit_percent"),
+        trade_data.get("risk_per_trade"),
+        trade_data.get("notes"),
+        trade_data.get("rights_wrongs"),
         screenshots_json,
         trade_id
     ))
-
     conn.commit()
     conn.close()
 
-def delete_trade(trade_id):
-    """Delete a trade by ID."""
+# --- Delete Trade ---
+def delete_trade(trade_id: int):
     conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("DELETE FROM trades WHERE id = ?", (trade_id,))
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM trades WHERE id = ?", (trade_id,))
     conn.commit()
     conn.close()
