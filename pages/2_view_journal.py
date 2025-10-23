@@ -26,28 +26,70 @@ if not trades:
 
 df = pd.DataFrame(trades)
 
-# Ensure proper date format
+# --- DATE FORMATTING ---
 if "date" in df.columns:
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
-else:
-    df["date"] = pd.NaT
 
-# --- STYLING ---
+# --- STYLE ---
 st.markdown("""
 <style>
-.block-container {padding: 2rem 3rem !important; max-width: 1600px !important;}
-.trade-card {background-color: #ffffff; border-radius: 15px; padding: 1.5rem; margin-bottom: 2rem;
-             box-shadow: 0 4px 12px rgba(0,0,0,0.08);}
-.meta {color: #444; font-size: 0.95rem; margin-bottom: 1rem;}
-.section-header {color: #333; font-size: 1.1rem; font-weight: 600; margin-top: 1rem;}
-.note-box {background-color: #f9f9f9; padding: 1rem; border-radius: 10px;}
-.rw-box {background-color: #f2f2f2; padding: 1rem; border-radius: 10px;}
-.stButton>button {border-radius: 8px; padding: 0.4rem 0.8rem;}
+.block-container {
+    padding: 2rem 3rem !important;
+    max-width: 1400px !important;
+}
+.trade-card {
+    background: linear-gradient(to right, #ffffff, #fdfdfd);
+    border-radius: 18px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+    transition: all 0.2s ease-in-out;
+}
+.trade-card:hover {
+    box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+    transform: translateY(-3px);
+}
+.trade-header {
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center; 
+    padding-bottom: 0.5rem; 
+    border-bottom: 1px solid #eee;
+}
+.trade-meta {
+    color: #333;
+    font-size: 0.95rem;
+    margin-top: 0.8rem;
+    line-height: 1.6;
+}
+.section-title {
+    color: #222;
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin-top: 1.4rem;
+    margin-bottom: 0.4rem;
+}
+.note-box, .rw-box {
+    background-color: #f8f9fa;
+    border: 1px solid #eee;
+    padding: 1rem;
+    border-radius: 10px;
+    margin-bottom: 1rem;
+    color: #444;
+}
+.stButton>button {
+    border-radius: 8px;
+    padding: 0.45rem 0.8rem;
+    transition: 0.2s ease-in-out;
+}
+.stButton>button:hover {
+    background-color: #f0f0f0;
+}
 </style>
 """, unsafe_allow_html=True)
 
 # --- FILTERS ---
-with st.container():
+with st.expander("🔍 Filter Trades", expanded=False):
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         pairs = ["All"] + sorted(df["pair"].dropna().unique().tolist())
@@ -63,7 +105,7 @@ with st.container():
         trade_types = ["All"] + sorted(df["trade_type"].dropna().unique().tolist()) if "trade_type" in df.columns else ["All"]
         selected_type = st.selectbox("Trade Type", trade_types)
 
-# --- APPLY FILTERS ---
+# --- FILTER LOGIC ---
 filtered = df.copy()
 if selected_pair != "All":
     filtered = filtered[filtered["pair"] == selected_pair]
@@ -83,21 +125,14 @@ if filtered.empty:
 
 # --- HELPERS ---
 def show_image(path):
-    """
-    Display an image if it exists; otherwise, show info message.
-    Works on both local and Streamlit Cloud.
-    """
+    """Display an image if it exists; otherwise show message."""
     if not path:
         st.info("No screenshot uploaded.")
         return
-
-    try:
-        if os.path.exists(path):
-            st.image(path, use_container_width=True)
-        else:
-            st.info("File missing or cannot be displayed.")
-    except Exception as e:
-        st.error(f"Error displaying image: {e}")
+    if os.path.exists(path):
+        st.image(path, use_container_width=True)
+    else:
+        st.info("File missing or cannot be displayed.")
 
 def handle_file_upload(label, existing_path=None):
     uploaded_file = st.file_uploader(label, type=["png", "jpg", "jpeg"], key=label)
@@ -127,31 +162,50 @@ for _, trade in filtered.sort_values(by="date", ascending=False).iterrows():
     with st.expander(expander_label, expanded=False):
         st.markdown("<div class='trade-card'>", unsafe_allow_html=True)
 
-        # --- Meta Info ---
+        # --- HEADER ---
         st.markdown(
-            f"<div class='meta'>💰 Profit: <b>{trade.get('profit_percent','N/A')}%</b> | "
-            f"🎯 Planned R:R: <b>{trade.get('planned_rr','N/A')}</b> | "
-            f"✅ Realized R:R: <b>{trade.get('realized_rr','N/A')}</b> | "
-            f"⚖️ Risk: <b>{trade.get('risk_per_trade','N/A')}%</b> | "
-            f"📈 Type: <b>{trade.get('trade_type','N/A')}</b></div>", unsafe_allow_html=True
+            f"""
+            <div class='trade-header'>
+                <h4 style='margin:0;'>💹 {trade['pair']} | {trade['trade_type'].upper()}</h4>
+                <span style='color:#666; font-size:0.9rem;'>Session: {trade.get('session','-')}</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
-        # --- SCREENSHOTS SECTION ---
-        st.markdown("<div class='section-header'>🖼️ Screenshots</div>", unsafe_allow_html=True)
+        # --- META INFO ---
+        st.markdown(
+            f"""
+            <div class='trade-meta'>
+            💰 <b>Profit:</b> {trade.get('profit_percent','N/A')}% &nbsp;&nbsp;
+            🎯 <b>Planned R:R:</b> {trade.get('planned_rr','N/A')} &nbsp;&nbsp;
+            ✅ <b>Realized R:R:</b> {trade.get('realized_rr','N/A')} &nbsp;&nbsp;
+            ⚖️ <b>Risk:</b> {trade.get('risk_per_trade','N/A')}% &nbsp;&nbsp;
+            🕒 <b>Entry:</b> {trade.get('entry_time','--')} | <b>Exit:</b> {trade.get('exit_time','--')}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        st.divider()
+
+        # --- SCREENSHOTS ---
+        st.markdown("<div class='section-title'>🖼️ Trade Screenshots</div>", unsafe_allow_html=True)
         for tf in ["daily", "h4", "h1", "m15", "m5", "outcome"]:
             img_path = screenshots.get(tf)
             with st.expander(f"📸 {tf.upper()} Chart", expanded=False):
                 show_image(img_path)
 
-        # --- NOTES SECTION ---
-        st.markdown("<div class='section-header'>🧠 Notes</div>", unsafe_allow_html=True)
+        # --- NOTES ---
+        st.markdown("<div class='section-title'>🧠 Trade Notes</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='note-box'>{trade.get('notes','_No notes provided._')}</div>", unsafe_allow_html=True)
 
-        # --- RIGHTS & WRONGS SECTION ---
-        st.markdown("<div class='section-header'>⚖️ Rights & Wrongs</div>", unsafe_allow_html=True)
+        # --- RIGHTS & WRONGS ---
+        st.markdown("<div class='section-title'>⚖️ Rights & Wrongs</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='rw-box'>{trade.get('rights_wrongs','_No reflections provided._')}</div>", unsafe_allow_html=True)
 
         # --- ACTION BUTTONS ---
+        st.divider()
         col1, col2 = st.columns(2)
         with col1:
             if st.button(f"✏️ Edit Trade {trade['id']}", key=f"edit_{trade['id']}"):
@@ -163,7 +217,7 @@ for _, trade in filtered.sort_values(by="date", ascending=False).iterrows():
                 st.success(f"Trade {trade['id']} deleted successfully.")
                 st.rerun()
 
-        # --- INLINE EDIT FORM ---
+        # --- INLINE EDIT SECTION ---
         if st.session_state.get("edit_trade_id") == trade["id"]:
             st.divider()
             st.subheader("📝 Edit Trade Details")
@@ -178,7 +232,6 @@ for _, trade in filtered.sort_values(by="date", ascending=False).iterrows():
                 for tf in ["daily", "h4", "h1", "m15", "m5", "outcome"]:
                     new_screenshots[tf] = handle_file_upload(f"Upload {tf.upper()} Screenshot", screenshots.get(tf))
 
-                # Keep other data same
                 updated.update({
                     "pair": trade.get("pair"),
                     "session": trade.get("session"),
