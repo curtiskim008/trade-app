@@ -20,17 +20,14 @@ if not trades:
 
 df = pd.DataFrame(trades)
 
-# Ensure date column is datetime
+# --- Ensure Correct Data Types ---
 df["date"] = pd.to_datetime(df["date"], errors="coerce")
-
-# Ensure numeric columns
 df["profit_percent"] = pd.to_numeric(df.get("profit_percent", pd.Series()), errors="coerce")
 df["realized_rr"] = pd.to_numeric(df.get("realized_rr", pd.Series()), errors="coerce")
 
-# --- FILTER SECTION ---
+# --- FILTERS SECTION ---
 st.markdown("### 🔍 Filters")
 
-# sensible defaults for date inputs
 min_date = df["date"].min().date() if not df["date"].isna().all() else datetime.date.today()
 max_date = df["date"].max().date() if not df["date"].isna().all() else datetime.date.today()
 
@@ -40,31 +37,18 @@ with filter_col1:
 with filter_col2:
     end_date = st.date_input("End Date", value=max_date)
 with filter_col3:
-    # list trade types from data if available (keeps UI in sync with DB)
-    if "trade_type" in df.columns:
-        available_types = sorted(df["trade_type"].dropna().astype(str).unique().tolist())
-        # normalize display: preserve original capitalization but include All
-        options = ["All"] + available_types
-    else:
-        options = ["All", "Live", "Backtest", "Demo"]
-    trade_type = st.selectbox("Trade Type", options=options, index=0)
+    available_types = sorted(df["trade_type"].dropna().astype(str).unique().tolist()) if "trade_type" in df.columns else []
+    trade_type = st.selectbox("Trade Type", ["All"] + available_types, index=0)
 
 # --- APPLY FILTERS ---
-# date mask (guard against nulls)
 mask = pd.Series(True, index=df.index)
-if start_date is not None:
-    mask &= df["date"].dt.date >= start_date
-if end_date is not None:
-    mask &= df["date"].dt.date <= end_date
+mask &= df["date"].dt.date.between(start_date, end_date)
+
+if trade_type != "All":
+    mask &= df["trade_type"].fillna("").str.lower() == trade_type.lower()
 
 df_filtered = df[mask].copy()
 
-# trade_type filtering — robust and case-insensitive
-if trade_type and trade_type != "All" and "trade_type" in df_filtered.columns:
-    # compare normalized lowercase strings
-    df_filtered = df_filtered[df_filtered["trade_type"].fillna("").str.lower() == str(trade_type).lower()]
-
-# fallback if no rows
 if df_filtered.empty:
     st.warning("No trades match the selected filters.")
     st.stop()
@@ -87,9 +71,20 @@ st.markdown("""
             padding-left: 5rem !important;
             padding-right: 5rem !important;
         }
-        .metric-card { border-radius: 16px; padding: 1.3rem; margin-bottom: 1.2rem; text-align: center;
-                        box-shadow: 0px 4px 12px rgba(0,0,0,0.12); transition: 0.25s ease; color: white; font-family: 'Inter', sans-serif; }
-        .metric-card:hover { transform: translateY(-3px); box-shadow: 0px 8px 22px rgba(0,0,0,0.15); }
+        .metric-card {
+            border-radius: 18px;
+            padding: 1.6rem;
+            margin-bottom: 1.3rem;
+            text-align: center;
+            box-shadow: 0px 4px 16px rgba(0,0,0,0.1);
+            transition: all 0.25s ease;
+            color: white;
+            font-family: 'Inter', sans-serif;
+        }
+        .metric-card:hover {
+            transform: translateY(-3px) scale(1.02);
+            box-shadow: 0px 8px 22px rgba(0,0,0,0.15);
+        }
         .total { background: linear-gradient(135deg, #2ecc71, #27ae60); }
         .win { background: linear-gradient(135deg, #3498db, #2980b9); }
         .loss { background: linear-gradient(135deg, #e74c3c, #c0392b); }
@@ -97,22 +92,30 @@ st.markdown("""
         .rate { background: linear-gradient(135deg, #9b59b6, #8e44ad); }
         .rr { background: linear-gradient(135deg, #16a085, #1abc9c); }
         .pnl { background: linear-gradient(135deg, #34495e, #2c3e50); }
-        .metric-label { font-size: 0.95rem; font-weight: 500; opacity: 0.9; margin-bottom: 0.3rem; }
-        .metric-value { font-size: 1.8rem; font-weight: 700; }
+        .metric-label {
+            font-size: 0.95rem;
+            font-weight: 500;
+            opacity: 0.9;
+            margin-bottom: 0.4rem;
+            letter-spacing: 0.3px;
+        }
+        .metric-value {
+            font-size: 1.9rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
     </style>
 """, unsafe_allow_html=True)
 
-# --- METRIC LAYOUT ---
+# --- METRICS DISPLAY ---
 col1, col2 = st.columns(2, gap="large")
 
-# LEFT COLUMN - Trade Counts
 with col1:
     st.markdown(f"<div class='metric-card total'><div class='metric-label'>Total Trades</div><div class='metric-value'>{total_trades}</div></div>", unsafe_allow_html=True)
     st.markdown(f"<div class='metric-card win'><div class='metric-label'>Winning Trades</div><div class='metric-value'>{wins}</div></div>", unsafe_allow_html=True)
     st.markdown(f"<div class='metric-card loss'><div class='metric-label'>Losing Trades</div><div class='metric-value'>{losses}</div></div>", unsafe_allow_html=True)
     st.markdown(f"<div class='metric-card break'><div class='metric-label'>Break Even Trades</div><div class='metric-value'>{breakeven}</div></div>", unsafe_allow_html=True)
 
-# RIGHT COLUMN - Performance Stats
 with col2:
     st.markdown(f"<div class='metric-card rate'><div class='metric-label'>Win Rate (%)</div><div class='metric-value'>{win_rate:.2f}%</div></div>", unsafe_allow_html=True)
     st.markdown(f"<div class='metric-card rr'><div class='metric-label'>Average R:R</div><div class='metric-value'>{average_rr:.2f}</div></div>", unsafe_allow_html=True)
