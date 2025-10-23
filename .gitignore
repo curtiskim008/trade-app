@@ -1,14 +1,5 @@
-# --- Data ---
-data/screenshots/
-data/trades.db
-
-# --- Python ---
+# Ignore local data and cache
+data/
 __pycache__/
 *.pyc
-venv/
-
-# --- Streamlit cache ---
-.streamlit/
-
-# --- VS Code ---
-.vscode/
+.env

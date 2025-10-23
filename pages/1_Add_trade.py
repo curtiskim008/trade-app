@@ -1,19 +1,14 @@
 import streamlit as st
 from datetime import datetime
 from utils import database as db
-from pathlib import Path
 import json
+import base64
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="➕ Add New Trade", layout="wide")
 
 # --- Initialize DB ---
 db.init_db()
-
-# --- Directories ---
-data_dir = Path("data")
-screenshot_dir = data_dir / "screenshots"
-screenshot_dir.mkdir(parents=True, exist_ok=True)
 
 # --- Custom Styling ---
 st.markdown("""
@@ -86,6 +81,7 @@ with st.form("add_trade_form"):
     st.markdown("#### 📸 Upload Screenshots")
     screenshots = {}
     timeframes = ["daily", "h4", "h1", "m15", "m5", "outcome"]
+
     for tf in timeframes:
         with st.expander(f"{tf.upper()} Timeframe"):
             file = st.file_uploader(
@@ -93,7 +89,11 @@ with st.form("add_trade_form"):
                 type=["png", "jpg", "jpeg"],
                 key=f"{tf}_upload"
             )
-            screenshots[tf] = file
+            if file:
+                # Convert file to Base64 string for database storage
+                screenshots[tf] = base64.b64encode(file.read()).decode("utf-8")
+            else:
+                screenshots[tf] = None
 
     # --- NOTES & REFLECTION ---
     notes = st.text_area("Trade Notes / Observations", height=120, placeholder="Describe your setup, emotions, and reasoning.")
@@ -102,17 +102,6 @@ with st.form("add_trade_form"):
     submitted = st.form_submit_button("💾 Save Trade")
 
     if submitted:
-        # Save screenshots
-        saved_screenshots = {}
-        for tf, file in screenshots.items():
-            if file:
-                save_path = screenshot_dir / f"{datetime.now().strftime('%Y%m%d_%H%M%S_')}{tf}_{file.name}"
-                with open(save_path, "wb") as f:
-                    f.write(file.read())
-                saved_screenshots[tf] = str(save_path)
-            else:
-                saved_screenshots[tf] = None
-
         trade_data = {
             "pair": pair if pair != "Select a pair" else "",
             "session": session.strip(),
@@ -126,7 +115,7 @@ with st.form("add_trade_form"):
             "risk_per_trade": risk_per_trade,
             "notes": notes.strip(),
             "rights_wrongs": rights_wrongs.strip(),
-            "screenshots": json.dumps(saved_screenshots)
+            "screenshots": screenshots
         }
 
         if pair != "Select a pair" and session:
